@@ -1,4 +1,4 @@
-# Verafy: Truth Check (Chrome extension, v0.2)
+# Verafy: Truth Check (Chrome extension, v0.2.1)
 
 A truth filter for the web. Read any page with every checkable claim
 highlighted in place and checked against independent sources, plus cliff
@@ -8,8 +8,9 @@ notes and a map of which perspectives are present and missing.
 
 1. Unzip this folder.
 2. Open `chrome://extensions` and turn on **Developer mode**.
-3. Click **Load unpacked** and choose the `verafy-extension` folder.
-   Upgrading from v0.1: click the reload icon on the Verafy card instead.
+3. Click **Load unpacked** and choose this folder (`releases/v0.2.1`).
+   Upgrading from an earlier version: remove the old Verafy card first, or
+   load this folder over it and click the reload icon.
 4. Click the Verafy icon, open **Settings**, and paste your Claude API key.
    Web search must be enabled for your organization in the Claude Console.
 
@@ -25,6 +26,21 @@ notes and a map of which perspectives are present and missing.
   Claims beyond the limit show dotted underlines and can be checked one at a time.
 - **Quick score:** checks the page's main claims only (6 by default). No highlights.
 - **One statement:** select text, right-click, **Check "…" with Verafy**.
+
+While a full read runs, the panel shows each stage (reading, finding claims,
+checking N of M) with a progress bar, and a thin bar runs across the top of the
+page. **Cancel** stops the run and keeps what's been checked.
+
+## Saved rulings and History
+
+Every ruling is saved in this browser as it's made, one per page. Come back to a
+page, switch tabs, or reopen the panel, and the last ruling (with highlights) is
+restored without any API calls. **Re-check** starts a fresh run; if a run was
+interrupted, **Resume** checks only the claims that were left. The clock icon
+opens **History**: past rulings, newest first. The 200 most recently updated
+pages are kept. **Clear history** is in Settings. Nothing here leaves the browser.
+
+Moving to another page or tab stops the current run and clears the panel.
 
 Highlight colors: green supported, amber contested, red refuted, grey dotted
 can't verify or not checked yet.
@@ -46,7 +62,8 @@ can't verify or not checked yet.
 Cliff notes and perspectives are the model's reading of the page. They aren't
 fact-checked, and the panel says so.
 
-Run `node test_grounded.mjs` to test the solver.
+Run `node test_grounded.mjs` to test the solver, and the other `test_*.mjs` files
+for saved rulings, URL handling, and scan progress.
 
 ## Cost
 

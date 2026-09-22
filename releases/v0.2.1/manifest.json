@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Verafy: Truth Check",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Read any page with a truth filter: every claim highlighted and checked, plus cliff notes and missing perspectives.",
   "permissions": ["sidePanel", "storage", "unlimitedStorage", "scripting", "contextMenus", "activeTab", "tabs"],
   "host_permissions": ["<all_urls>"],
