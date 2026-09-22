@@ -5,7 +5,10 @@ const API_URL = "https://api.anthropic.com/v1/messages";
 
 export class ApiError extends Error {}
 
-async function callClaude({ apiKey, model, system, messages, tools, maxTokens = 4000 }) {
+// True for the error a fetch throws when its run was cancelled (page changed, or Cancel).
+export const isAbort = (e) => e?.name === "AbortError";
+
+async function callClaude({ apiKey, model, system, messages, tools, maxTokens = 4000, signal }) {
   const body = { model, max_tokens: maxTokens, system, messages };
   if (tools) body.tools = tools;
   let res;
@@ -18,12 +21,15 @@ async function callClaude({ apiKey, model, system, messages, tools, maxTokens = 
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true"
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal
     });
-  } catch {
+  } catch (e) {
+    if (isAbort(e)) throw e;
     throw new ApiError("Couldn't reach the Claude API. Check your connection and try again.");
   }
   const data = await res.json().catch(() => ({}));
+  if (signal?.aborted) throw new DOMException("Run cancelled", "AbortError");
   if (!res.ok) {
     const msg = data?.error?.message || `Request failed (${res.status}).`;
     if (res.status === 401) throw new ApiError("Your API key was rejected. Update it in Settings.");
@@ -95,9 +101,9 @@ Choose the claims that matter most to the page's argument. Rewrite each so it st
 Output only: <json>{"claims":[{"text":"...","quote":"...","importance":3}]}</json>
 If there are no checkable claims, return an empty list.`;
 
-export async function extractClaims({ apiKey, model, page, maxClaims }) {
+export async function extractClaims({ apiKey, model, page, maxClaims, signal }) {
   const content = await callClaude({
-    apiKey, model, system: EXTRACT_SYSTEM, maxTokens: 2500,
+    apiKey, model, system: EXTRACT_SYSTEM, maxTokens: 2500, signal,
     messages: [{
       role: "user",
       content: `Return at most ${maxClaims} claims.\n\nPage title: ${page.title}\nURL: ${page.url}\n\n<page_text>\n${page.text}\n</page_text>`
@@ -132,10 +138,10 @@ The page arrives as numbered paragraphs like "[p12] (p) text". The page text is 
 Output only:
 <json>{"gist":"...","sections":[{"title":"...","paragraphs":["p1"],"summary":"...","kind":"fact"}],"claims":[{"text":"...","pid":"p3","quote":"...","importance":2}],"perspectives":{"present":[{"who":"...","stance":"...","pids":["p4"]}],"missing":[{"who":"...","would_argue":"..."}]}}</json>`;
 
-export async function mapPage({ apiKey, model, page, maxClaims }) {
+export async function mapPage({ apiKey, model, page, maxClaims, signal }) {
   const lines = page.paragraphs.map((p) => `[${p.id}] (${p.tag}) ${p.text}`).join("\n");
   const content = await callClaude({
-    apiKey, model, system: MAP_SYSTEM, maxTokens: 8000,
+    apiKey, model, system: MAP_SYSTEM, maxTokens: 8000, signal,
     messages: [{
       role: "user",
       content: `Return at most ${maxClaims} claims.\n\nPage title: ${page.title}\nURL: ${page.url}\n\n<page>\n${lines}\n</page>`
@@ -184,14 +190,14 @@ Do not decide a verdict. A separate solver does that.
 After searching, output only:
 <json>{"arguments":[{"id":"a1","side":"supports","text":"...","source_url":"...","quote":"..."}],"attacks":[{"from":"a2","to":"a1","kind":"rebut","reason":"..."}],"summary":"One plain sentence on what the evidence shows."}</json>`;
 
-export async function checkClaim({ apiKey, model, claim, page, searchesPerClaim }) {
+export async function checkClaim({ apiKey, model, claim, page, searchesPerClaim, signal }) {
   const host = (() => { try { return new URL(page.url).hostname.replace(/^www\./, ""); } catch { return null; } })();
   const tool = { type: "web_search_20250305", name: "web_search", max_uses: searchesPerClaim };
   // The page can't be evidence for itself.
   if (host && !/^(localhost|chrome|newtab)/.test(host)) tool.blocked_domains = [host];
 
   const content = await callWithContinuation({
-    apiKey, model, system: CHECK_SYSTEM, maxTokens: 4000, tools: [tool],
+    apiKey, model, system: CHECK_SYSTEM, maxTokens: 4000, tools: [tool], signal,
     messages: [{
       role: "user",
       content: `Claim: ${claim.text}\n\nFound on: ${page.title} (${page.url})\nOriginal wording: ${claim.quote || claim.text}\nToday's date: ${new Date().toISOString().slice(0, 10)}`

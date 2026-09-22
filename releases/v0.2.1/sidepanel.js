@@ -1,5 +1,6 @@
-import { extractClaims, mapPage, checkClaim, ApiError } from "./api.js";
+import { extractClaims, mapPage, checkClaim, ApiError, isAbort } from "./api.js";
 import { truthScore, scoreLabel } from "./grounded.js";
+import { pageKey } from "./pageurl.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { apiKey: "", model: "claude-sonnet-5", maxClaims: 6, searchesPerClaim: 3, fullReadClaims: 12 };
@@ -17,6 +18,20 @@ let map = null;             // { gist, sections, perspectives } in full mode
 let page = null;
 let tabId = null;
 let cfg = null;
+
+// The page the panel is showing, and the session bound to it. A session is replaced
+// whenever the page changes or a new run starts; anything that finishes for an old
+// session is dropped, and its API calls are aborted.
+let shown = { tabId: null, url: null };
+let windowId = null;
+let session = { id: 0, ctrl: new AbortController() };
+function newSession() {
+  session.ctrl.abort();
+  session = { id: session.id + 1, ctrl: new AbortController() };
+  return session;
+}
+const live = (s) => s.id === session.id;
+const sameUrl = (a, b) => (pageKey(a) ?? a) === (pageKey(b) ?? b);
 
 function el(tag, props = {}, ...children) {
   const n = document.createElement(tag);
@@ -54,8 +69,9 @@ async function inPage(fn, ...args) {
     return result;
   } catch { return null; }
 }
-const pageHighlight = (list) => inPage((l) => window.__verafy?.highlight(l), list);
-const pageUpdate = (c) => inPage((id, v, s) => window.__verafy?.update(id, v, s), c.id, c.verdict, c.summary || "");
+// Page writes check the session first, so a late result never marks a page it doesn't belong to.
+const pageHighlight = (list, s = session) => (live(s) ? inPage((l) => window.__verafy?.highlight(l), list) : null);
+const pageUpdate = (c, s = session) => (live(s) ? inPage((id, v, sm) => window.__verafy?.update(id, v, sm), c.id, c.verdict, c.summary || "") : null);
 const pageClear = () => inPage(() => window.__verafy?.clear());
 const pageFocus = (target) => inPage((t) => window.__verafy?.focus(t), target);
 
@@ -216,44 +232,53 @@ async function pool(items, limit, fn) {
   }));
 }
 
-async function runCheck(c) {
+async function runCheck(c, s) {
+  if (!live(s)) return;
   c.verdict = "pending";
-  if (mode === "full") pageUpdate(c);
+  if (mode === "full") pageUpdate(c, s);
   try {
-    Object.assign(c, await checkClaim({ apiKey: cfg.apiKey, model: cfg.model, claim: c, page, searchesPerClaim: cfg.searchesPerClaim }));
+    const result = await checkClaim({ apiKey: cfg.apiKey, model: cfg.model, claim: c, page, searchesPerClaim: cfg.searchesPerClaim, signal: s.ctrl.signal });
+    if (!live(s)) return;
+    Object.assign(c, result);
   } catch (e) {
+    if (!live(s) || isAbort(e)) return;
     c.verdict = "unverifiable";
     c.error = e instanceof ApiError ? e.message : "This claim couldn't be checked.";
   }
-  if (mode === "full") pageUpdate(c);
+  if (mode === "full") pageUpdate(c, s);
   renderClaims();
 }
 
-async function runChecks(list, concurrency) {
+async function runChecks(list, concurrency, s) {
   let done = 0;
   await pool(list, concurrency, async (c) => {
-    await runCheck(c);
+    if (!live(s)) return;
+    await runCheck(c, s);
     done++;
-    setStatus(done < list.length ? `Checked ${done} of ${list.length} claims\u2026` : "");
+    if (live(s)) setStatus(done < list.length ? `Checked ${done} of ${list.length} claims\u2026` : "");
   });
 }
 
+// Returns the new run's session, or null if the run can't start.
 async function begin(newMode) {
-  if (running) return false;
+  if (running) return null;
   cfg = await loadSettings();
-  if (!cfg.apiKey) { keyNotice(); return false; }
+  if (!cfg.apiKey) { keyNotice(); return null; }
   clearNotice();
   running = true;
   $("fullRead").disabled = $("checkPage").disabled = true;
   if (mode === "full") await pageClear();
+  const s = newSession();
   resetView(newMode);
-  return true;
+  return s;
 }
-function finish() {
+function finish(s) {
+  if (!live(s)) return;
   running = false;
   $("fullRead").disabled = $("checkPage").disabled = false;
 }
-function fail(e) {
+function fail(e, s) {
+  if (!live(s) || isAbort(e)) return;
   setStatus("");
   showNotice(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
 }
@@ -270,21 +295,27 @@ async function currentTab() {
 const unreadable = () => new ApiError("Chrome doesn't let extensions read this page. Open a regular web page and try again.");
 
 async function fullRead() {
-  if (!(await begin("full"))) return;
+  const s = await begin("full");
+  if (!s) return;
   try {
     const tab = await currentTab();
+    if (!live(s)) return;
     tabId = tab.id;
     try {
       await chrome.scripting.insertCSS({ target: { tabId }, files: ["page.css"] });
       await chrome.scripting.executeScript({ target: { tabId }, files: ["page.js"] });
     } catch { throw unreadable(); }
+    if (!live(s)) return;
     page = await inPage(() => window.__verafy.collect());
+    if (!live(s)) return;
     if (!page) throw unreadable();
     if (page.paragraphs.length < 2) throw new ApiError("This page doesn't have enough text to read.");
     setSubject(page.title);
 
     setStatus("Reading the whole page\u2026");
-    map = await mapPage({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: 40 });
+    const mapped = await mapPage({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: 40, signal: s.ctrl.signal });
+    if (!live(s)) return;
+    map = mapped;
     if (!map.claims.length && !map.sections.length) throw new ApiError("Couldn't find anything to analyze on this page.");
 
     // Check the most central claims now; the rest wait for an on-demand check.
@@ -292,21 +323,24 @@ async function fullRead() {
     const toCheck = new Set(ranked.slice(0, cfg.fullReadClaims).map((c) => c.id));
     claims = map.claims.map((c) => ({ ...c, fromPage: true, verdict: toCheck.has(c.id) ? "pending" : "unchecked" }));
 
-    const located = (await pageHighlight(claims)) || {};
+    const located = (await pageHighlight(claims, s)) || {};
+    if (!live(s)) return;
     for (const c of claims) c.located = !!located[c.id];
     renderClaims();
     renderPerspectives();
 
     const queue = claims.filter((c) => c.verdict === "pending");
     setStatus(queue.length ? `Checking ${queue.length} claims against web sources\u2026` : "");
-    await runChecks(queue, 3);
-  } catch (e) { fail(e); } finally { finish(); }
+    await runChecks(queue, 3, s);
+  } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
 async function quickScore() {
-  if (!(await begin("quick"))) return;
+  const s = await begin("quick");
+  if (!s) return;
   try {
     const tab = await currentTab();
+    if (!live(s)) return;
     tabId = tab.id;
     let res;
     try {
@@ -319,21 +353,25 @@ async function quickScore() {
         }
       });
     } catch { throw unreadable(); }
+    if (!live(s)) return;
     page = res;
     if (!page?.text || page.text.length < 200) throw new ApiError("This page doesn't have enough text to check.");
     setSubject(page.title);
     setStatus("Finding the main claims on this page\u2026");
-    const found = await extractClaims({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: cfg.maxClaims });
+    const found = await extractClaims({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: cfg.maxClaims, signal: s.ctrl.signal });
+    if (!live(s)) return;
     if (!found.length) { setStatus(""); showNotice("No checkable factual claims found on this page."); return; }
     claims = found.map((c) => ({ ...c, verdict: "pending", fromPage: true }));
     renderClaims();
     setStatus(`Checking ${claims.length} claims against web sources\u2026`);
-    await runChecks(claims, 2);
-  } catch (e) { fail(e); } finally { finish(); }
+    await runChecks(claims, 2, s);
+  } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
 async function checkStatement(p) {
-  if (!p?.text?.trim() || !(await begin("statement"))) return;
+  if (!p?.text?.trim()) return;
+  const s = await begin("statement");
+  if (!s) return;
   try {
     tabId = null;
     page = { title: p.title, url: p.url };
@@ -341,8 +379,8 @@ async function checkStatement(p) {
     claims = [{ id: "c1", text: p.text.trim(), quote: p.text.trim(), importance: 1, verdict: "pending", fromPage: false }];
     renderClaims();
     setStatus("Checking this statement against web sources\u2026");
-    await runChecks(claims, 1);
-  } catch (e) { fail(e); } finally { finish(); }
+    await runChecks(claims, 1, s);
+  } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
 async function checkOne(c) {
@@ -350,8 +388,9 @@ async function checkOne(c) {
   cfg = await loadSettings();
   if (!cfg.apiKey) { keyNotice(); return; }
   running = true;
+  const s = session;
   setStatus("Checking this claim\u2026");
-  try { await runCheck(c); } finally { running = false; setStatus(""); }
+  try { await runCheck(c, s); } finally { if (live(s)) { running = false; setStatus(""); } }
 }
 
 async function takePending() {
@@ -360,6 +399,51 @@ async function takePending() {
   await chrome.storage.session.remove("pending");
   if (Date.now() - pending.ts < 60_000) checkStatement(pending);
 }
+
+// ---------- Page changes ----------
+
+// The panel always follows the active tab of its own window. When that page changes,
+// the in-flight run is cancelled and the panel goes back to the empty state.
+function onPageChange(tab) {
+  const old = shown;
+  const hadHighlights = mode === "full";
+  shown = { tabId: tab?.id ?? null, url: tab?.url ?? null };
+  newSession();
+  running = false;
+  $("fullRead").disabled = $("checkPage").disabled = false;
+  setStatus("");
+  clearNotice();
+  // A full load wipes the old DOM by itself; a single-page-app route change doesn't.
+  // Clearing is a no-op on a fresh document, so do it for any page that had highlights.
+  if (hadHighlights && old.tabId != null) {
+    chrome.scripting.executeScript({ target: { tabId: old.tabId }, func: () => window.__verafy?.clear() }).catch(() => {});
+  }
+  tabId = null;
+  page = null;
+  $("subjectRow").hidden = true;
+  resetView(null);
+}
+
+async function activeTabOfWindow() {
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  return tab || null;
+}
+
+async function followActiveTab() {
+  const tab = await activeTabOfWindow();
+  if (!tab) return;
+  if (tab.id !== shown.tabId || !sameUrl(tab.url, shown.url)) onPageChange(tab);
+}
+
+chrome.tabs.onUpdated.addListener((id, info, tab) => {
+  if (id !== shown.tabId || !info.url) return;
+  if (sameUrl(info.url, shown.url)) { shown.url = info.url; return; }  // hash or tracking-param change only
+  onPageChange(tab);
+});
+chrome.tabs.onActivated.addListener(({ windowId: w }) => { if (w === windowId) followActiveTab(); });
+// Each window has its own panel. When focus comes back to this one, make sure it still
+// matches its active tab; focusing another window doesn't clear this panel.
+chrome.windows.onFocusChanged.addListener((w) => { if (w === windowId) followActiveTab(); });
 
 // ---------- Wiring ----------
 
@@ -387,5 +471,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 });
 
 resetView(null);
+chrome.windows.getCurrent().then(async (w) => {
+  windowId = w.id;
+  const tab = await activeTabOfWindow();
+  shown = { tabId: tab?.id ?? null, url: tab?.url ?? null };
+});
 takePending();
 loadSettings().then((s) => { if (!s.apiKey) keyNotice(); });
