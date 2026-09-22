@@ -221,3 +221,29 @@ details.sample > summary { cursor: pointer; color: var(--accent); }
 .history-del { margin-top: 8px; font-size: 18px; line-height: 1; }
 .options .danger-zone { margin-top: 28px; }
 .secondary-btn { margin-top: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; }
+
+/* Scan status (v0.2.1 fix 3) */
+.spinner { display: inline-block; width: .9em; height: .9em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -0.1em; }
+.score-spin { display: none; width: 22px; height: 22px; margin-left: 10px; align-self: center; color: var(--muted); }
+.score[data-scanning="true"] .score-spin { display: inline-block; }
+.score[data-scanning="true"] .score-num { color: var(--muted); }
+.cancel { margin-top: 8px; }
+.stage { margin: 12px 0 0; transition: opacity .4s ease; }
+.stage.fading { opacity: 0; }
+.stage-text { margin: 0 0 6px; font-size: 13px; }
+.stage[data-kind="error"] .stage-text { color: var(--ref); }
+.stage-bar { position: relative; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.stage-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--accent); border-radius: 2px; }
+.stage-bar.indeterminate .stage-fill { width: 30%; }
+.stage-slow { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+@media (prefers-reduced-motion: no-preference) {
+  .spinner { animation: verafy-spin .8s linear infinite; }
+  .stage-fill { transition: width .3s ease; }
+  .stage-bar.indeterminate .stage-fill { animation: verafy-slide 1.4s ease-in-out infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage { transition: none; }
+  .spinner { border-right-color: currentColor; opacity: .6; }
+}
+@keyframes verafy-spin { to { transform: rotate(360deg); } }
+@keyframes verafy-slide { 0% { left: -30%; } 100% { left: 100%; } }

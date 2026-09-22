@@ -29,6 +29,7 @@
     <div class="score-row">
       <span class="score-num" id="scoreNum">&ndash;</span>
       <span class="score-of">/100</span>
+      <span class="spinner score-spin" aria-hidden="true"></span>
     </div>
     <p class="score-label" id="scoreLabel">Truth score</p>
     <div class="strip" id="strip" role="img" aria-label="Verdict for each claim"></div>
@@ -39,6 +40,12 @@
   <section class="actions">
     <button id="fullRead" class="primary">Read the whole page</button>
     <button id="checkPage" class="secondary">Quick score</button>
+    <button id="cancelRun" class="secondary cancel" hidden>Cancel</button>
+    <div class="stage" id="stage" hidden>
+      <p class="stage-text" id="stageText" role="status"></p>
+      <div class="stage-bar" id="stageBar" role="progressbar" aria-label="Scan progress"><span class="stage-fill" id="stageFill"></span></div>
+      <p class="stage-slow" id="stageSlow" hidden>Still working. Long pages take longer.</p>
+    </div>
     <p class="hint">Full read highlights every claim on the page and adds cliff notes and perspectives. Quick score checks the main claims only. To check one statement, select it, right-click, and choose <em>Check with Verafy</em>.</p>
   </section>
 
