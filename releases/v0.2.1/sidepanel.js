@@ -2,6 +2,7 @@ import { extractClaims, mapPage, checkClaim, ApiError, isAbort } from "./api.js"
 import { truthScore, scoreLabel } from "./grounded.js";
 import { pageKey } from "./pageurl.js";
 import { saveRuling, loadRuling, listRulings, deleteRuling, statementKey, paraSnippets, remapParagraphs } from "./history.js";
+import { pageBar, createStage } from "./progress.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { apiKey: "", model: "claude-sonnet-5", maxClaims: 6, searchesPerClaim: 3, fullReadClaims: 12 };
@@ -65,6 +66,34 @@ function showNotice(message, action) {
 function clearNotice() { $("notice").hidden = true; }
 const keyNotice = () => showNotice("Add your Claude API key to start checking.", { label: "Open settings", run: () => chrome.runtime.openOptionsPage() });
 
+// ---------- Scan status (Full read) ----------
+
+let barTab = null;   // tab showing the on-page progress bar
+const setPageBar = (state) => {
+  if (barTab == null) return;
+  chrome.scripting.executeScript({ target: { tabId: barTab }, func: pageBar, args: [state] }).catch(() => {});
+  if (state.mode === "remove") barTab = null;
+};
+const stage = createStage({
+  box: $("stage"), text: $("stageText"), bar: $("stageBar"), fill: $("stageFill"), slow: $("stageSlow"),
+  onBar: setPageBar
+});
+
+const FULL_LABEL = "Read the whole page";
+// Button state for a run. Called synchronously on click so it shows within 100 ms.
+function scanUI(on, { full = false } = {}) {
+  $("fullRead").disabled = $("checkPage").disabled = on;
+  $("cancelRun").hidden = !on;
+  if (on && full) {
+    $("fullRead").replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), document.createTextNode(" Scanning\u2026"));
+    $("score").dataset.scanning = "true";
+  } else {
+    $("fullRead").textContent = FULL_LABEL;
+    delete $("score").dataset.scanning;
+  }
+  renderScore();
+}
+
 // ---------- Saved rulings ----------
 
 function startRecord(key, fields) { current = key ? { key, startedAt: Date.now(), ...fields } : null; }
@@ -117,7 +146,8 @@ async function showOnPage(c) {
 
 function renderScore() {
   const { score, basis, total } = truthScore(claims);
-  $("scoreNum").textContent = score === null ? "\u2013" : String(score);
+  const scanning = $("score").dataset.scanning === "true";
+  $("scoreNum").textContent = scanning ? "\u2026" : score === null ? "\u2013" : String(score);
   $("scoreLabel").textContent = claims.length ? scoreLabel(score) : "Truth score";
   $("score").dataset.band = score === null ? "" : score >= 60 ? "high" : score >= 40 ? "mid" : "low";
 
@@ -286,13 +316,15 @@ async function runCheck(c, s) {
   persist(s);
 }
 
-async function runChecks(list, concurrency, s) {
+async function runChecks(list, concurrency, s, onProgress) {
   let done = 0;
   await pool(list, concurrency, async (c) => {
     if (!live(s)) return;
     await runCheck(c, s);
     done++;
-    if (live(s)) setStatus(done < list.length ? `Checked ${done} of ${list.length} claims\u2026` : "");
+    if (!live(s)) return;
+    if (onProgress) onProgress(done, list.length);
+    else setStatus(done < list.length ? `Checked ${done} of ${list.length} claims\u2026` : "");
   });
 }
 
@@ -303,7 +335,7 @@ async function begin(newMode) {
   if (!cfg.apiKey) { keyNotice(); return null; }
   clearNotice();
   running = true;
-  $("fullRead").disabled = $("checkPage").disabled = true;
+  scanUI(true, { full: newMode === "full" });
   if (mode === "full") await pageClear();
   const s = newSession();
   resetView(newMode);
@@ -312,13 +344,14 @@ async function begin(newMode) {
 function finish(s) {
   if (!live(s)) return;
   running = false;
-  $("fullRead").disabled = $("checkPage").disabled = false;
+  scanUI(false);
 }
 function fail(e, s) {
   if (!live(s) || isAbort(e)) return;
   const msg = e instanceof ApiError ? e.message : "Something went wrong. Try again.";
   setStatus("");
-  showNotice(msg);
+  if (mode === "full") stage.show("error", { message: msg });
+  else showNotice(msg);
   persist(s, claims.length ? statusNow() : "failed", msg);
 }
 function setSubject(text) {
@@ -334,8 +367,13 @@ async function currentTab() {
 const unreadable = () => new ApiError("Chrome doesn't let extensions read this page. Open a regular web page and try again.");
 
 async function fullRead() {
+  if (running) return;
+  // Everything visible happens before the first await.
+  scanUI(true, { full: true });
+  barTab = shown.tabId;
+  stage.show("read");
   const s = await begin("full");
-  if (!s) return;
+  if (!s) { scanUI(false); stage.hide(); return; }
   try {
     const tab = await currentTab();
     if (!live(s)) return;
@@ -352,7 +390,7 @@ async function fullRead() {
     if (page.paragraphs.length < 2) throw new ApiError("This page doesn't have enough text to read.");
     setSubject(page.title);
 
-    setStatus("Reading the whole page\u2026");
+    stage.show("map");
     const mapped = await mapPage({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: 40, signal: s.ctrl.signal });
     if (!live(s)) return;
     map = mapped;
@@ -371,9 +409,11 @@ async function fullRead() {
     persist(s);
 
     const queue = claims.filter((c) => c.verdict === "pending");
-    setStatus(queue.length ? `Checking ${queue.length} claims against web sources\u2026` : "");
-    await runChecks(queue, 3, s);
+    stage.show("check", { done: 0, total: queue.length });
+    await runChecks(queue, 3, s, (done, total) => stage.show("check", { done, total }));
+    if (!live(s)) return;
     persist(s);
+    stage.show("done");
   } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
@@ -459,7 +499,6 @@ function onPageChange(tab) {
   shown = { tabId: tab?.id ?? null, url: tab?.url ?? null };
   newSession();
   running = false;
-  $("fullRead").disabled = $("checkPage").disabled = false;
   setStatus("");
   clearNotice();
   // A full load wipes the old DOM by itself; a single-page-app route change doesn't.
@@ -467,6 +506,9 @@ function onPageChange(tab) {
   if (hadHighlights && old.tabId != null) {
     chrome.scripting.executeScript({ target: { tabId: old.tabId }, func: () => window.__verafy?.clear() }).catch(() => {});
   }
+  setPageBar({ mode: "remove" });
+  stage.hide();
+  scanUI(false);
   tabId = null;
   page = null;
   $("subjectRow").hidden = true;
@@ -600,15 +642,39 @@ async function resume() {
   const queue = claims.filter((c) => c.resume);
   if (!queue.length) return;
   running = true;
-  $("fullRead").disabled = $("checkPage").disabled = true;
+  scanUI(true, { full: mode === "full" });
   $("savedLine").hidden = true;
   for (const c of queue) { delete c.resume; c.verdict = "pending"; }
   renderClaims();
-  setStatus(`Checking ${queue.length} remaining ${queue.length === 1 ? "claim" : "claims"}\u2026`);
+  const full = mode === "full";
+  if (full) { barTab = tabId; stage.show("check", { done: 0, total: queue.length }); }
+  else setStatus(`Checking ${queue.length} remaining ${queue.length === 1 ? "claim" : "claims"}\u2026`);
   try {
-    await runChecks(queue, mode === "full" ? 3 : 2, s);
+    await runChecks(queue, full ? 3 : 2, s, full ? (done, total) => stage.show("check", { done, total }) : undefined);
+    if (!live(s)) return;
     persist(s);
+    if (full) stage.show("done");
   } finally { finish(s); }
+}
+
+// Stops the run, keeps what's been checked, and saves it as partial.
+function cancelRun() {
+  if (!running) return;
+  const s = session;
+  const unfinished = claims.filter((c) => c.verdict === "pending");
+  for (const c of unfinished) { c.verdict = "unchecked"; c.resume = true; }
+  if (claims.length) persist(s, "partial");
+  newSession();   // aborts every in-flight call
+  running = false;
+  scanUI(false);
+  setStatus("");
+  if (mode === "full") for (const c of unfinished) pageUpdate(c);
+  renderClaims();
+  const saved = claims.length > 0 && current;
+  if (mode === "full") stage.show("cancelled", { message: saved ? "Cancelled. What was checked so far is saved." : "Cancelled." });
+  else setStatus(saved ? "Cancelled. What was checked so far is saved." : "Cancelled.");
+  setPageBar({ mode: "remove" });
+  if (saved) renderSaved({ ...current, status: "partial", updatedAt: Date.now() });
 }
 
 // ---------- History ----------
@@ -658,6 +724,7 @@ async function openRuling(r) {
 
 $("fullRead").addEventListener("click", fullRead);
 $("checkPage").addEventListener("click", quickScore);
+$("cancelRun").addEventListener("click", cancelRun);
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("history").addEventListener("click", () => ($("historyView").hidden ? openHistory() : closeHistory()));
 for (const t of ["claims", "notes", "persp"]) $(`tab-${t}`).addEventListener("click", () => selectTab(t));
