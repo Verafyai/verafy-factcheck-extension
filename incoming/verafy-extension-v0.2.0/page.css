@@ -1,0 +1,20 @@
+verafy-mark, .verafy-para[data-claim] { cursor: pointer; }
+verafy-mark {
+  color: inherit !important; border-radius: 2px; padding: 0 1px;
+  border-bottom: 2px solid transparent; box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+verafy-mark[data-v="pending"]      { background: rgba(120,130,145,.14) !important; border-bottom: 2px dashed rgba(120,130,145,.7); }
+verafy-mark[data-v="supported"]    { background: rgba(30,122,85,.16) !important;  border-bottom-color: #1e7a55; }
+verafy-mark[data-v="contested"]    { background: rgba(214,140,20,.20) !important; border-bottom-color: #b26b00; }
+verafy-mark[data-v="refuted"]      { background: rgba(179,38,30,.16) !important;  border-bottom-color: #b3261e; }
+verafy-mark[data-v="unverifiable"] { background: rgba(120,130,145,.10) !important; border-bottom: 2px dotted #8a93a0; }
+verafy-mark[data-v="unchecked"]    { background: none !important; border-bottom: 2px dotted rgba(120,130,145,.8); }
+.verafy-para[data-claim] { box-shadow: inset 3px 0 0 #8a93a0; padding-left: 8px !important; }
+.verafy-para[data-v="supported"] { box-shadow: inset 3px 0 0 #1e7a55; }
+.verafy-para[data-v="contested"] { box-shadow: inset 3px 0 0 #b26b00; }
+.verafy-para[data-v="refuted"]   { box-shadow: inset 3px 0 0 #b3261e; }
+.verafy-flash { outline: 3px solid #2f46c4 !important; outline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) {
+  .verafy-flash { animation: verafy-fade 1.6s ease forwards; }
+  @keyframes verafy-fade { 0%, 60% { outline-color: #2f46c4; } 100% { outline-color: transparent; } }
+}
