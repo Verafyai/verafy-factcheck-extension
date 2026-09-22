@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verafy</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="bar">
+    <span class="wordmark">Verafy</span>
+    <button id="settings" class="icon-btn" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4L10.7 6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+    </button>
+  </header>
+
+  <section class="score" id="score" aria-live="polite">
+    <div class="score-row">
+      <span class="score-num" id="scoreNum">&ndash;</span>
+      <span class="score-of">/100</span>
+    </div>
+    <p class="score-label" id="scoreLabel">Truth score</p>
+    <div class="strip" id="strip" role="img" aria-label="Verdict for each claim"></div>
+    <p class="score-basis" id="scoreBasis">Check a page to see how its claims hold up against independent sources.</p>
+  </section>
+
+  <section class="actions">
+    <button id="fullRead" class="primary">Read the whole page</button>
+    <button id="checkPage" class="secondary">Quick score</button>
+    <p class="hint">Full read highlights every claim on the page and adds cliff notes and perspectives. Quick score checks the main claims only. To check one statement, select it, right-click, and choose <em>Check with Verafy</em>.</p>
+  </section>
+
+  <p class="status" id="status" role="status"></p>
+  <div class="notice" id="notice" hidden></div>
+
+  <div class="subject-row" id="subjectRow" hidden>
+    <p class="subject" id="subject"></p>
+    <label class="toggle" id="hlToggle" hidden><input type="checkbox" id="hlOn" checked> Highlights</label>
+  </div>
+
+  <nav class="tabs" id="tabs" role="tablist" hidden>
+    <button role="tab" id="tab-claims" aria-selected="true" aria-controls="panel-claims">Claims</button>
+    <button role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Cliff notes</button>
+    <button role="tab" id="tab-persp" aria-selected="false" aria-controls="panel-persp">Perspectives</button>
+  </nav>
+
+  <section id="panel-claims" role="tabpanel" aria-labelledby="tab-claims"><ol class="claims" id="claims"></ol></section>
+  <section id="panel-notes" role="tabpanel" aria-labelledby="tab-notes" hidden></section>
+  <section id="panel-persp" role="tabpanel" aria-labelledby="tab-persp" hidden></section>
+
+  <footer class="foot">
+    The score reflects the evidence found for each claim, not certainty. Cliff notes and perspectives are the model's reading of the page and aren't fact-checked. Read the sources before relying on any of it.
+  </footer>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
