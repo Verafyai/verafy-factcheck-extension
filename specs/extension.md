@@ -1,6 +1,6 @@
 # Verafy Chrome extension: handoff
 
-The browser extension lives in `verafy-extension/` (v0.2). It was built outside
+The browser extension lives in `releases/v0.2.0/`. It was built outside
 this repo and hasn't yet run against the live API. Treat the first live run as
 the real test.
 
