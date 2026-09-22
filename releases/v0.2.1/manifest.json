@@ -3,7 +3,7 @@
   "name": "Verafy: Truth Check",
   "version": "0.2.0",
   "description": "Read any page with a truth filter: every claim highlighted and checked, plus cliff notes and missing perspectives.",
-  "permissions": ["sidePanel", "storage", "scripting", "contextMenus", "activeTab", "tabs"],
+  "permissions": ["sidePanel", "storage", "unlimitedStorage", "scripting", "contextMenus", "activeTab", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "sidepanel.html" },

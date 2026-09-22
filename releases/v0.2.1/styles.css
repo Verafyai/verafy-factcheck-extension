@@ -158,3 +158,23 @@ details.args > summary { cursor: pointer; color: var(--accent); font-size: 13px;
 .seg.unchecked { background: transparent; border: 1px dashed var(--unk); }
 .run-one { margin-top: 8px; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 4px 10px; font-size: 12.5px; }
 .claim.flash { animation: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* Saved rulings and History (v0.2.1) */
+.bar-actions { display: flex; gap: 2px; }
+.saved-line { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+.summary.missing { font-style: italic; }
+.history-view { padding-top: 8px; }
+.history-head { display: flex; justify-content: space-between; align-items: baseline; }
+.history-head h2 { margin: 0; font: 400 22px/1.2 var(--serif); }
+.history { list-style: none; margin: 10px 0 0; padding: 0; }
+.history-row { display: flex; align-items: flex-start; gap: 4px; border-bottom: 1px solid var(--line); }
+.history-open { flex: 1; display: flex; gap: 12px; align-items: flex-start; text-align: left; background: none; border: 0; padding: 10px 0; color: var(--ink); }
+.history-open:hover .history-title { text-decoration: underline; }
+.history-score { flex: none; width: 2.2em; font: 400 22px/1.1 var(--serif); font-variant-numeric: tabular-nums; color: var(--muted); }
+.history-score.high { color: var(--sup); } .history-score.mid { color: var(--con); } .history-score.low { color: var(--ref); }
+.history-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-title { font: 400 15px/1.35 var(--serif); overflow-wrap: anywhere; }
+.history-meta { color: var(--muted); font-size: 12px; }
+.history-del { margin-top: 8px; font-size: 18px; line-height: 1; }
+.options .danger-zone { margin-top: 28px; }
+.secondary-btn { margin-top: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; }

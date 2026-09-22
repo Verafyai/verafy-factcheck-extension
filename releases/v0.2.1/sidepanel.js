@@ -1,6 +1,7 @@
 import { extractClaims, mapPage, checkClaim, ApiError, isAbort } from "./api.js";
 import { truthScore, scoreLabel } from "./grounded.js";
 import { pageKey } from "./pageurl.js";
+import { saveRuling, loadRuling, listRulings, deleteRuling, statementKey, paraSnippets, remapParagraphs } from "./history.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { apiKey: "", model: "claude-sonnet-5", maxClaims: 6, searchesPerClaim: 3, fullReadClaims: 12 };
@@ -33,6 +34,10 @@ function newSession() {
 const live = (s) => s.id === session.id;
 const sameUrl = (a, b) => (pageKey(a) ?? a) === (pageKey(b) ?? b);
 
+// Identity of the saved record for what the panel shows:
+// { key, startedAt, mode, url, title, paras (full mode), statement (statement mode) }
+let current = null;
+
 function el(tag, props = {}, ...children) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -59,6 +64,33 @@ function showNotice(message, action) {
 }
 function clearNotice() { $("notice").hidden = true; }
 const keyNotice = () => showNotice("Add your Claude API key to start checking.", { label: "Open settings", run: () => chrome.runtime.openOptionsPage() });
+
+// ---------- Saved rulings ----------
+
+function startRecord(key, fields) { current = key ? { key, startedAt: Date.now(), ...fields } : null; }
+
+// Partial until every queued claim has a verdict.
+const statusNow = () => (claims.some((c) => c.verdict === "pending" || c.resume) ? "partial" : "complete");
+
+// Saves the current state. Called after the claim map, after every verdict, and at the end.
+function persist(s, status = statusNow(), error = "") {
+  if (!live(s) || !current) return;
+  const { score, basis } = truthScore(claims);
+  saveRuling({
+    ...current, extensionVersion: chrome.runtime.getManifest().version,
+    updatedAt: Date.now(), status, score, basis, claims, map, error
+  });
+}
+
+function ago(t) {
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} ${m === 1 ? "minute" : "minutes"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ${h === 1 ? "hour" : "hours"} ago`;
+  const d = Math.floor(h / 24);
+  return `${d} ${d === 1 ? "day" : "days"} ago`;
+}
 
 // ---------- Page bridge (full mode) ----------
 
@@ -130,9 +162,10 @@ function renderClaims() {
       ),
       el("p", { class: "claim-text", text: c.text }),
       c.summary ? el("p", { class: "summary", text: c.summary }) : null,
-      c.error ? el("p", { class: "summary", text: c.error }) : null
+      c.error ? el("p", { class: "summary", text: c.error }) : null,
+      c.missing ? el("p", { class: "summary missing", text: "No longer found on this page" }) : null
     );
-    if (c.quote && c.fromPage) {
+    if (c.quote && c.fromPage && !c.missing) {
       li.append(el("p", { class: "claim-quote" },
         document.createTextNode(`\u201c${c.quote}\u201d `),
         el("button", { class: "link-btn", text: "Show on page", onclick: () => showOnPage(c) })
@@ -214,6 +247,8 @@ function resetView(newMode) {
   mode = newMode;
   claims = [];
   map = null;
+  current = null;
+  $("savedLine").hidden = true;
   $("tabs").hidden = newMode !== "full";
   $("hlToggle").hidden = newMode !== "full";
   $("hlOn").checked = true;
@@ -234,6 +269,7 @@ async function pool(items, limit, fn) {
 
 async function runCheck(c, s) {
   if (!live(s)) return;
+  delete c.resume;
   c.verdict = "pending";
   if (mode === "full") pageUpdate(c, s);
   try {
@@ -247,6 +283,7 @@ async function runCheck(c, s) {
   }
   if (mode === "full") pageUpdate(c, s);
   renderClaims();
+  persist(s);
 }
 
 async function runChecks(list, concurrency, s) {
@@ -279,8 +316,10 @@ function finish(s) {
 }
 function fail(e, s) {
   if (!live(s) || isAbort(e)) return;
+  const msg = e instanceof ApiError ? e.message : "Something went wrong. Try again.";
   setStatus("");
-  showNotice(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
+  showNotice(msg);
+  persist(s, claims.length ? statusNow() : "failed", msg);
 }
 function setSubject(text) {
   $("subjectRow").hidden = false;
@@ -309,6 +348,7 @@ async function fullRead() {
     page = await inPage(() => window.__verafy.collect());
     if (!live(s)) return;
     if (!page) throw unreadable();
+    startRecord(pageKey(page.url), { mode: "full", url: page.url, title: page.title, paras: paraSnippets(page.paragraphs) });
     if (page.paragraphs.length < 2) throw new ApiError("This page doesn't have enough text to read.");
     setSubject(page.title);
 
@@ -325,13 +365,15 @@ async function fullRead() {
 
     const located = (await pageHighlight(claims, s)) || {};
     if (!live(s)) return;
-    for (const c of claims) c.located = !!located[c.id];
+    applyLocated(located);
     renderClaims();
     renderPerspectives();
+    persist(s);
 
     const queue = claims.filter((c) => c.verdict === "pending");
     setStatus(queue.length ? `Checking ${queue.length} claims against web sources\u2026` : "");
     await runChecks(queue, 3, s);
+    persist(s);
   } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
@@ -355,6 +397,7 @@ async function quickScore() {
     } catch { throw unreadable(); }
     if (!live(s)) return;
     page = res;
+    if (page?.url) startRecord(pageKey(page.url), { mode: "quick", url: page.url, title: page.title });
     if (!page?.text || page.text.length < 200) throw new ApiError("This page doesn't have enough text to check.");
     setSubject(page.title);
     setStatus("Finding the main claims on this page\u2026");
@@ -363,8 +406,10 @@ async function quickScore() {
     if (!found.length) { setStatus(""); showNotice("No checkable factual claims found on this page."); return; }
     claims = found.map((c) => ({ ...c, verdict: "pending", fromPage: true }));
     renderClaims();
+    persist(s);
     setStatus(`Checking ${claims.length} claims against web sources\u2026`);
     await runChecks(claims, 2, s);
+    persist(s);
   } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
@@ -376,10 +421,14 @@ async function checkStatement(p) {
     tabId = null;
     page = { title: p.title, url: p.url };
     setSubject(`Selected on ${p.title || hostOf(p.url)}`);
+    const pk = pageKey(p.url);
+    startRecord(pk && statementKey(pk, p.text), { mode: "statement", url: p.url, title: p.title, statement: p.text.trim() });
     claims = [{ id: "c1", text: p.text.trim(), quote: p.text.trim(), importance: 1, verdict: "pending", fromPage: false }];
     renderClaims();
+    persist(s);
     setStatus("Checking this statement against web sources\u2026");
     await runChecks(claims, 1, s);
+    persist(s);
   } catch (e) { fail(e, s); } finally { finish(s); }
 }
 
@@ -422,6 +471,7 @@ function onPageChange(tab) {
   page = null;
   $("subjectRow").hidden = true;
   resetView(null);
+  restoreFor(tab, session);
 }
 
 async function activeTabOfWindow() {
@@ -445,17 +495,175 @@ chrome.tabs.onActivated.addListener(({ windowId: w }) => { if (w === windowId) f
 // matches its active tab; focusing another window doesn't clear this panel.
 chrome.windows.onFocusChanged.addListener((w) => { if (w === windowId) followActiveTab(); });
 
+// ---------- Restore, resume, re-check ----------
+
+// A claim's page position as reported by page.js: the paragraph id it was marked in.
+function applyLocated(located) {
+  for (const c of claims) {
+    const at = located[c.id];
+    c.located = !!at;
+    if (typeof at === "string") c.pid = at;
+  }
+}
+
+async function whenLoaded(id, s) {
+  for (let i = 0; i < 40; i++) {
+    if (!live(s)) return false;
+    const t = await chrome.tabs.get(id).catch(() => null);
+    if (!t) return false;
+    if (t.status === "complete") return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+async function restoreFor(tab, s) {
+  const pk = pageKey(tab?.url);
+  if (!pk || running) return;
+  let key = pk;
+  // Opening a statement ruling from History restores that statement, not the page.
+  const { restoreHint } = await chrome.storage.session.get("restoreHint");
+  if (restoreHint?.page === pk) { key = restoreHint.key; await chrome.storage.session.remove("restoreHint"); }
+  const r = await loadRuling(key);
+  if (!r || !live(s) || running) return;
+  await showRuling(r, tab, s);
+}
+
+async function showRuling(r, tab, s) {
+  resetView(r.mode);
+  current = { key: r.key, startedAt: r.startedAt, mode: r.mode, url: r.url, title: r.title, paras: r.paras, statement: r.statement };
+  page = { title: r.title, url: r.url };
+  tabId = r.mode === "statement" ? null : tab.id;
+  map = r.map || null;
+  // Claims that were still being checked when the run stopped wait for Resume.
+  claims = (r.claims || []).map((c) => (c.verdict === "pending" ? { ...c, verdict: "unchecked", resume: true } : { ...c }));
+  setSubject(r.mode === "statement" ? `Selected on ${r.title || hostOf(r.url)}` : r.title);
+  renderClaims();
+  renderPerspectives();
+  renderSaved(r);
+  if (r.mode === "full" && claims.length) await restoreHighlights(tab.id, s);
+}
+
+// Re-inject page.js on the (possibly reloaded) page, match paragraphs by text, and re-mark claims.
+async function restoreHighlights(id, s) {
+  if (!(await whenLoaded(id, s))) return;
+  try {
+    await chrome.scripting.insertCSS({ target: { tabId: id }, files: ["page.css"] });
+    await chrome.scripting.executeScript({ target: { tabId: id }, files: ["page.js"] });
+  } catch { return; }
+  if (!live(s)) return;
+  const fresh = await inPage(() => window.__verafy.collect());
+  if (!live(s) || !fresh || !current) return;
+  const remap = remapParagraphs(current.paras, fresh.paragraphs);
+  const to = (pid) => remap[pid] ?? null;
+  for (const c of claims) c.pid = to(c.pid);
+  if (map) {
+    map.sections = map.sections.map((sec) => ({ ...sec, paragraphs: sec.paragraphs.map(to).filter(Boolean) }));
+    map.perspectives.present = map.perspectives.present.map((p) => ({ ...p, pids: p.pids.map(to).filter(Boolean) }));
+  }
+  current.paras = paraSnippets(fresh.paragraphs);
+  const located = (await pageHighlight(claims, s)) || {};
+  if (!live(s)) return;
+  applyLocated(located);
+  for (const c of claims) c.missing = !c.located;
+  renderClaims();
+  renderPerspectives();
+}
+
+function renderSaved(r) {
+  const line = $("savedLine");
+  const btn = (text, run) => el("button", { class: "link-btn", text, onclick: run });
+  const sep = () => document.createTextNode(" \u00b7 ");
+  const canResume = r.status === "partial" && claims.some((c) => c.resume);
+  line.replaceChildren(...[
+    document.createTextNode(r.status === "failed" ? `Last check failed ${ago(r.updatedAt)}` : `Checked ${ago(r.updatedAt)}`),
+    r.status === "partial" ? document.createTextNode(", stopped before finishing") : null,
+    sep(), btn("Re-check", () => recheck(r)),
+    canResume ? sep() : null,
+    canResume ? btn("Resume", resume) : null
+  ].filter(Boolean));
+  line.hidden = false;
+}
+
+function recheck(r) {
+  if (r.mode === "full") fullRead();
+  else if (r.mode === "quick") quickScore();
+  else checkStatement({ text: r.statement, url: r.url, title: r.title });
+}
+
+// Checks only the claims that were queued when the run stopped.
+async function resume() {
+  if (running) return;
+  cfg = await loadSettings();
+  if (!cfg.apiKey) { keyNotice(); return; }
+  const s = session;
+  const queue = claims.filter((c) => c.resume);
+  if (!queue.length) return;
+  running = true;
+  $("fullRead").disabled = $("checkPage").disabled = true;
+  $("savedLine").hidden = true;
+  for (const c of queue) { delete c.resume; c.verdict = "pending"; }
+  renderClaims();
+  setStatus(`Checking ${queue.length} remaining ${queue.length === 1 ? "claim" : "claims"}\u2026`);
+  try {
+    await runChecks(queue, mode === "full" ? 3 : 2, s);
+    persist(s);
+  } finally { finish(s); }
+}
+
+// ---------- History ----------
+
+const MODE_TEXT = { full: "Full read", quick: "Quick score", statement: "Statement" };
+
+function closeHistory() { $("historyView").hidden = true; $("mainView").hidden = false; }
+async function openHistory() { $("mainView").hidden = true; $("historyView").hidden = false; await renderHistory(); }
+
+async function renderHistory() {
+  const list = await listRulings();
+  $("historyView").replaceChildren(
+    el("div", { class: "history-head" },
+      el("h2", { text: "History" }),
+      el("button", { class: "link-btn", text: "Back", onclick: closeHistory })),
+    el("p", { class: "hint", text: "Rulings are saved in this browser only. The 200 most recently updated pages are kept." }),
+    list.length ? el("ol", { class: "history" }, ...list.map(historyRow)) : el("p", { class: "empty", text: "No saved rulings yet." })
+  );
+}
+
+function historyRow(r) {
+  const counts = ["supported", "contested", "refuted"].filter((v) => r.counts?.[v]).map((v) => `${r.counts[v]} ${v}`).join(" \u00b7 ");
+  const status = r.status === "partial" ? "Unfinished" : r.status === "failed" ? "Failed" : "";
+  const date = new Date(r.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const band = r.score == null ? "" : r.score >= 60 ? "high" : r.score >= 40 ? "mid" : "low";
+  const title = r.title || hostOf(r.url);
+  return el("li", { class: "history-row" },
+    el("button", { class: "history-open", onclick: () => openRuling(r) },
+      el("span", { class: `history-score ${band}`, text: r.score == null ? "\u2013" : String(r.score) }),
+      el("span", { class: "history-body" },
+        el("span", { class: "history-title", text: title }),
+        el("span", { class: "history-meta", text: [hostOf(r.url), MODE_TEXT[r.mode], status, date].filter(Boolean).join(" \u00b7 ") }),
+        counts ? el("span", { class: "history-meta", text: counts }) : null)),
+    el("button", {
+      class: "icon-btn history-del", title: "Delete", "aria-label": `Delete saved ruling for ${title}`, text: "\u00d7",
+      onclick: async () => { await deleteRuling(r.key); renderHistory(); }
+    }));
+}
+
+async function openRuling(r) {
+  await chrome.storage.session.set({ restoreHint: { page: pageKey(r.url), key: r.key } });
+  closeHistory();
+  await chrome.tabs.create({ url: r.url, windowId: windowId ?? undefined });
+}
+
 // ---------- Wiring ----------
 
 $("fullRead").addEventListener("click", fullRead);
 $("checkPage").addEventListener("click", quickScore);
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("history").addEventListener("click", () => ($("historyView").hidden ? openHistory() : closeHistory()));
 for (const t of ["claims", "notes", "persp"]) $(`tab-${t}`).addEventListener("click", () => selectTab(t));
 $("hlOn").addEventListener("change", async (e) => {
-  if (e.target.checked) {
-    const located = (await pageHighlight(claims)) || {};
-    for (const c of claims) c.located = !!located[c.id];
-  } else await pageClear();
+  if (e.target.checked) applyLocated((await pageHighlight(claims)) || {});
+  else await pageClear();
 });
 
 chrome.storage.session.onChanged.addListener((changes) => { if (changes.pending?.newValue) takePending(); });
@@ -475,6 +683,7 @@ chrome.windows.getCurrent().then(async (w) => {
   windowId = w.id;
   const tab = await activeTabOfWindow();
   shown = { tabId: tab?.id ?? null, url: tab?.url ?? null };
+  if (tab) restoreFor(tab, session);   // reopening the panel restores the current page's ruling
 });
 takePending();
 loadSettings().then((s) => { if (!s.apiKey) keyNotice(); });

@@ -82,21 +82,31 @@
     return true;
   }
 
+  // Returns { claimId: pid where it was marked, or false }. A claim's quote is looked for
+  // in its own paragraph first, then in every collected paragraph (ids can shift when a
+  // saved ruling is restored on a reloaded page).
   function highlight(claims) {
     const located = {};
     for (const c of claims) {
       info[c.id] = { verdict: c.verdict, text: c.text, summary: c.summary || "" };
-      const el = document.querySelector(`[data-verafy-pid="${CSS.escape(c.pid)}"]`);
-      if (!el) { located[c.id] = false; continue; }
-      let ok = c.quote ? wrapQuote(el, c.quote, c.id) : false;
-      if (!ok) {
+      const el = c.pid ? document.querySelector(`[data-verafy-pid="${CSS.escape(c.pid)}"]`) : null;
+      let at = null;
+      if (c.quote) {
+        if (el && wrapQuote(el, c.quote, c.id)) at = el;
+        else {
+          for (const p of document.querySelectorAll("[data-verafy-pid]")) {
+            if (p !== el && wrapQuote(p, c.quote, c.id)) { at = p; break; }
+          }
+        }
+      }
+      if (!at && el) {
         // Couldn't match the exact words: mark the paragraph instead.
         el.classList.add("verafy-para");
         el.dataset.claim = c.id;
         el.dataset.v = c.verdict;
-        ok = true;
+        at = el;
       }
-      located[c.id] = ok;
+      located[c.id] = at ? at.getAttribute("data-verafy-pid") : false;
     }
     return located;
   }
