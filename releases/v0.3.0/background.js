@@ -19,6 +19,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       text: (info.selectionText || "").slice(0, 1000),
       url: tab.url || "",
       title: tab.title || "",
+      tabId: tab.id,
       ts: Date.now()
     }
   });

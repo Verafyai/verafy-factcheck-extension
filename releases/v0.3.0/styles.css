@@ -158,3 +158,49 @@ details.args > summary { cursor: pointer; color: var(--accent); font-size: 13px;
 .seg.unchecked { background: transparent; border: 1px dashed var(--unk); }
 .run-one { margin-top: 8px; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 4px 10px; font-size: 12.5px; }
 .claim.flash { animation: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* Source card (v0.3 amendment A) */
+.source { margin: 8px 0 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.src-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.src-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 0; }
+.src-name { font: 400 15px/1.35 var(--serif); overflow-wrap: anywhere; }
+.src-btn { flex: none; background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 3px 9px; font-size: 12.5px; }
+.src-btn:disabled { opacity: .6; cursor: default; }
+.src-cost { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.src-err { color: var(--ref); margin: 6px 0 0; font-size: 12.5px; }
+.src-actions { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
+.src-result { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.src-result > summary { cursor: pointer; font-weight: 600; }
+.src-result h4 { margin: 12px 0 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.src-num { margin: 8px 0 0; font: 400 15px/1 var(--serif); color: var(--muted); }
+.src-num strong { font: 400 34px/1 var(--serif); color: var(--ink); font-variant-numeric: tabular-nums; }
+.src-none { margin: 8px 0 0; font-weight: 600; }
+.sigs, .topics, .facts { list-style: none; margin: 0; padding: 0; }
+.sig { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; }
+.sig .icon { flex: none; margin-top: 3px; }
+.sig-label { font-weight: 600; }
+.sig-weight { color: var(--muted); font-size: 12px; }
+.sig-finding { margin: 2px 0; color: var(--muted); font-size: 12.5px; }
+.src-links { font-size: 12px; overflow-wrap: anywhere; }
+.topics li, .facts li { padding: 4px 0; }
+.topics p, .facts p { margin: 0; }
+.src-note { margin: 12px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 6px; font-size: 12.5px; }
+.src-meta { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+details.sample { margin-top: 10px; font-size: 12.5px; }
+details.sample > summary { cursor: pointer; color: var(--accent); }
+
+.icon.ok { color: var(--sup); }
+.icon.partial { color: var(--sup); opacity: .6; }
+.icon.no { color: var(--ref); }
+.icon.unk { color: var(--unk); }
+
+/* Lean scale: neutral greys only, so lean never reads as right or wrong. */
+.lean-head { margin: 0; font-weight: 600; }
+.lean-scale { position: relative; height: 14px; margin: 8px 6px 0; }
+.lean-track { position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--line); }
+.lean-mark { position: absolute; top: 1px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--muted); border: 2px solid var(--surface); }
+.lean-mark.at-left { left: 0; } .lean-mark.at-center { left: 50%; } .lean-mark.at-right { left: 100%; }
+.lean-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; margin: 2px 0 0; }
+
+.options .danger-zone { margin-top: 28px; }
+.secondary-btn { margin-top: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; }

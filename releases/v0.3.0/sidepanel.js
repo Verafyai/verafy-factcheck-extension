@@ -1,5 +1,7 @@
 import { extractClaims, mapPage, checkClaim, ApiError } from "./api.js";
 import { truthScore, scoreLabel } from "./grounded.js";
+import { el, safeHref, hostOf } from "./dom.js";
+import { initSourceCard, showSourceCard, hideSourceCard } from "./source.js";
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { apiKey: "", model: "claude-sonnet-5", maxClaims: 6, searchesPerClaim: 3, fullReadClaims: 12 };
@@ -18,19 +20,6 @@ let page = null;
 let tabId = null;
 let cfg = null;
 
-function el(tag, props = {}, ...children) {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (k === "class") n.className = v;
-    else if (k === "text") n.textContent = v;
-    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v);
-  }
-  for (const c of children) if (c) n.append(c);
-  return n;
-}
-const safeHref = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : null; } catch { return null; } };
-const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
 
 async function loadSettings() {
   return { ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) };
@@ -196,6 +185,7 @@ function selectTab(name) {
 
 function resetView(newMode) {
   mode = newMode;
+  hideSourceCard();
   claims = [];
   map = null;
   $("tabs").hidden = newMode !== "full";
@@ -274,6 +264,7 @@ async function fullRead() {
   try {
     const tab = await currentTab();
     tabId = tab.id;
+    showSourceCard(tabId);
     try {
       await chrome.scripting.insertCSS({ target: { tabId }, files: ["page.css"] });
       await chrome.scripting.executeScript({ target: { tabId }, files: ["page.js"] });
@@ -308,6 +299,7 @@ async function quickScore() {
   try {
     const tab = await currentTab();
     tabId = tab.id;
+    showSourceCard(tabId);
     let res;
     try {
       [{ result: res }] = await chrome.scripting.executeScript({
@@ -337,6 +329,10 @@ async function checkStatement(p) {
   try {
     tabId = null;
     page = { title: p.title, url: p.url };
+    // The card reads the page the selection came from, if that tab is still on it.
+    if (p.tabId != null) {
+      chrome.tabs.get(p.tabId).then((t) => { if (t?.url === p.url) showSourceCard(p.tabId, { statement: true }); }).catch(() => {});
+    }
     setSubject(`Selected on ${p.title || hostOf(p.url)}`);
     claims = [{ id: "c1", text: p.text.trim(), quote: p.text.trim(), importance: 1, verdict: "pending", fromPage: false }];
     renderClaims();
@@ -386,6 +382,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   setTimeout(() => li.classList.remove("flash"), 1600);
 });
 
+initSourceCard({ loadSettings, keyNotice });
 resetView(null);
 takePending();
 loadSettings().then((s) => { if (!s.apiKey) keyNotice(); });

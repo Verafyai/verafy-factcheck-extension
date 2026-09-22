@@ -20,3 +20,13 @@ document.getElementById("save").addEventListener("click", async () => {
   s.textContent = "Settings saved";
   setTimeout(() => (s.textContent = ""), 2500);
 });
+
+// Removes every cached publication and author check (keys starting with "src:").
+document.getElementById("clearSource").addEventListener("click", async () => {
+  const all = await chrome.storage.local.get(null);
+  const keys = Object.keys(all).filter((k) => k.startsWith("src:"));
+  await chrome.storage.local.remove(keys);
+  const s = document.getElementById("cleared");
+  s.textContent = keys.length ? `Cleared ${keys.length} saved ${keys.length === 1 ? "check" : "checks"}` : "Nothing to clear";
+  setTimeout(() => (s.textContent = ""), 2500);
+});
