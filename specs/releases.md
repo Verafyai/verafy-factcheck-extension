@@ -66,4 +66,4 @@ folder). Tag it when it works. v0.3 is built on the latest working 0.2.x.
 | v0.2.0 | Bundle (frozen) |
 | v0.2.x | Smoke-test fixes, if needed |
 | v0.3.0 | `specs/extension-v0.3.md` + `specs/extension-v0.3-source-panel.md` (amendment A replaces §4) |
-| v0.4.0 | `specs/extension-v0.4-discussion.md` |
+| v0.4.0 | `specs/extension-v0.4-discussion.md` + `specs/extension-v0.4-debate.md` (amendment B, after Discussion steps 1–3) |
