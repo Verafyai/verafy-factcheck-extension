@@ -1,0 +1,12 @@
+import { pageKey } from "./pageurl.js";
+import assert from "node:assert/strict";
+const k = "https://news.example.com/2026/story";
+assert.equal(pageKey("https://News.Example.com/2026/story/"), k);
+assert.equal(pageKey("https://news.example.com/2026/story#comments"), k);
+assert.equal(pageKey("https://news.example.com/2026/story?utm_source=x&utm_medium=y&fbclid=1&gclid=2&mc_cid=3&ref=hn"), k);
+assert.equal(pageKey("https://news.example.com/2026/story?page=2&utm_source=x"), `${k}?page=2`);
+assert.equal(pageKey("https://news.example.com/2026/story?b=2&a=1"), `${k}?a=1&b=2`);
+assert.notEqual(pageKey("https://news.example.com/2026/other"), k);
+assert.equal(pageKey("chrome://extensions"), null);
+assert.equal(pageKey("not a url"), null);
+console.log("pageurl tests pass");

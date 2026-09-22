@@ -30,3 +30,14 @@ document.getElementById("clearSource").addEventListener("click", async () => {
   s.textContent = keys.length ? `Cleared ${keys.length} saved ${keys.length === 1 ? "check" : "checks"}` : "Nothing to clear";
   setTimeout(() => (s.textContent = ""), 2500);
 });
+
+// Removes every saved ruling and the History index (see history.js).
+document.getElementById("clearHistory").addEventListener("click", async () => {
+  const all = await chrome.storage.local.get(null);
+  const keys = Object.keys(all).filter((k) => k.startsWith("ruling:") || k === "rulings:index");
+  await chrome.storage.local.remove(keys);
+  const n = keys.filter((k) => k.startsWith("ruling:")).length;
+  const s = document.getElementById("historyCleared");
+  s.textContent = n ? `Cleared ${n} saved ${n === 1 ? "ruling" : "rulings"}` : "Nothing to clear";
+  setTimeout(() => (s.textContent = ""), 2500);
+});
