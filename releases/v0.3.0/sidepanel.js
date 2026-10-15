@@ -7,7 +7,7 @@ import { saveRuling, loadRuling, listRulings, deleteRuling, statementKey, paraSn
 import { pageBar, createStage } from "./progress.js";
 
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { apiKey: "", model: "claude-sonnet-5", maxClaims: 6, searchesPerClaim: 3, fullReadClaims: 12 };
+const DEFAULTS = { apiKey: "", typesafeApiKey: "", model: "claude-sonnet-5", extractModel: "claude-haiku-4-5-20251001", maxClaims: 4, searchesPerClaim: 2, fullReadClaims: 8 };
 const VERDICT_TEXT = {
   supported: "Supported", contested: "Contested", refuted: "Refuted", unverifiable: "Can't verify",
   pending: "Checking", error: "Check failed", unchecked: "Not checked"
@@ -292,7 +292,7 @@ async function runCheck(c, s) {
   c.verdict = "pending";
   if (mode === "full") pageUpdate(c, s);
   try {
-    const result = await checkClaim({ apiKey: cfg.apiKey, model: cfg.model, claim: c, page, searchesPerClaim: cfg.searchesPerClaim, signal: s.ctrl.signal });
+    const result = await checkClaim({ apiKey: cfg.apiKey, model: cfg.model, claim: c, page, searchesPerClaim: cfg.searchesPerClaim, signal: s.ctrl.signal, typesafeApiKey: cfg.typesafeApiKey });
     if (!live(s)) return;
     Object.assign(c, result);
   } catch (e) {
@@ -381,7 +381,7 @@ async function fullRead() {
     setSubject(page.title);
 
     stage.show("map");
-    const mapped = await mapPage({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: 40, signal: s.ctrl.signal });
+    const mapped = await mapPage({ apiKey: cfg.apiKey, model: cfg.extractModel || cfg.model, page, maxClaims: 40, signal: s.ctrl.signal });
     if (!live(s)) return;
     map = mapped;
     if (!map.claims.length && !map.sections.length) throw new ApiError("Couldn't find anything to analyze on this page.");
@@ -432,7 +432,7 @@ async function quickScore() {
     if (!page?.text || page.text.length < 200) throw new ApiError("This page doesn't have enough text to check.");
     setSubject(page.title);
     setStatus("Finding the main claims on this page\u2026");
-    const found = await extractClaims({ apiKey: cfg.apiKey, model: cfg.model, page, maxClaims: cfg.maxClaims, signal: s.ctrl.signal });
+    const found = await extractClaims({ apiKey: cfg.apiKey, model: cfg.extractModel || cfg.model, page, maxClaims: cfg.maxClaims, signal: s.ctrl.signal });
     if (!live(s)) return;
     if (!found.length) { setStatus(""); showNotice("No checkable factual claims found on this page."); return; }
     claims = found.map((c) => ({ ...c, verdict: "pending", fromPage: true }));

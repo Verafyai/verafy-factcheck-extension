@@ -16,12 +16,27 @@
       <small>Create one at console.anthropic.com. Web search must be enabled for your organization in the Console.</small>
     </div>
     <div class="field">
-      <label for="model">Model</label>
+      <label for="typesafeApiKey">TypeSafe API key (optional, Jev pre-filter)</label>
+      <input id="typesafeApiKey" type="password" autocomplete="off" placeholder="TYPESAFE_API_KEY" />
+      <small>When set, Verafy asks Jev whether each claim is checkable before spending Claude web-search tokens. Leave blank to keep current behavior.</small>
+    </div>
+    <div class="field">
+      <label for="model">Check model (web search)</label>
       <select id="model">
-        <option value="claude-sonnet-5">Claude Sonnet 5 (recommended)</option>
+        <option value="claude-sonnet-5">Claude Sonnet 5 (recommended for checks)</option>
         <option value="claude-opus-5-5">Claude Opus 5.5 (most thorough, slower)</option>
-        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (fastest, cheapest)</option>
+        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (cheapest; no web fetch)</option>
       </select>
+      <small>Used for claim checking with web search. Keep Sonnet for quality.</small>
+    </div>
+    <div class="field">
+      <label for="extractModel">Extract / map model</label>
+      <select id="extractModel">
+        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (recommended)</option>
+        <option value="claude-sonnet-5">Claude Sonnet 5</option>
+        <option value="claude-opus-5-5">Claude Opus 5.5</option>
+      </select>
+      <small>Used for page mapping and claim extraction only. Haiku is enough here.</small>
     </div>
     <div class="field">
       <label for="maxClaims">Claims checked in a quick score</label>
@@ -41,7 +56,7 @@
 
     <div class="field danger-zone">
       <label>Source data</label>
-      <small>Publication and author checks are cached in this browser for 7 days. They're never synced or shared.</small>
+      <small>Publication and author checks are cached in this browser for 7 days. They're never synced or shared. Claim checks are also cached for 7 days.</small>
       <button id="clearSource" class="secondary-btn">Clear source data</button><span id="cleared" class="saved" role="status"></span>
     </div>
 
