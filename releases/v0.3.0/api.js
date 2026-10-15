@@ -1,6 +1,8 @@
 // Claude API calls: page mapping, claim extraction, claim checking, and source profiles.
 import { groundedLabels, verdictFor } from "./grounded.js";
 import { buildPublicationProfile } from "./profile.js";
+import { isCheckableClaim as jevIsCheckableClaim } from "./jev.js";
+export { isCheckableClaim } from "./jev.js";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 
@@ -10,7 +12,10 @@ export class ApiError extends Error {}
 export const isAbort = (e) => e?.name === "AbortError";
 
 async function callClaude({ apiKey, model, system, messages, tools, maxTokens = 4000, signal }) {
-  const body = { model, max_tokens: maxTokens, system, messages };
+  const systemBlock = typeof system === "string"
+    ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+    : system;
+  const body = { model, max_tokens: maxTokens, system: systemBlock, messages };
   if (tools) body.tools = tools;
   let res;
   try {
@@ -195,7 +200,44 @@ Do not decide a verdict. A separate solver does that.
 After searching, output only:
 <json>{"arguments":[{"id":"a1","side":"supports","text":"...","source_url":"...","quote":"..."}],"attacks":[{"from":"a2","to":"a1","kind":"rebut","reason":"..."}],"summary":"One plain sentence on what the evidence shows."}</json>`;
 
-export async function checkClaim({ apiKey, model, claim, page, searchesPerClaim, signal }) {
+
+function claimCacheKey(claim, pageUrl) {
+  const text = (claim.text || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 400);
+  let host = "";
+  try { host = new URL(pageUrl).hostname.replace(/^www\./, ""); } catch {}
+  return `claimCache:v1:${host}:${text}`;
+}
+
+const CLAIM_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function readClaimCache(key) {
+  try {
+    const { [key]: entry } = await chrome.storage.local.get(key);
+    if (!entry || !entry.at || Date.now() - entry.at > CLAIM_CACHE_TTL_MS) return null;
+    return entry.result || null;
+  } catch { return null; }
+}
+
+async function writeClaimCache(key, result) {
+  try { await chrome.storage.local.set({ [key]: { at: Date.now(), result } }); } catch { /* ignore quota */ }
+}
+
+export async function checkClaim({ apiKey, model, claim, page, searchesPerClaim, signal, typesafeApiKey }) {
+  // Optional Jev pre-filter: skip expensive web-search check when clearly not checkable.
+  const gate = await jevIsCheckableClaim(claim, { apiKey: typesafeApiKey, signal });
+  if (gate && gate.checkable === false) {
+    return {
+      verdict: "unverifiable",
+      summary: "Skipped: not a checkable factual claim (Jev pre-filter).",
+      arguments: [],
+      attacks: [],
+      jevFiltered: true,
+    };
+  }
+  const cacheKey = claimCacheKey(claim, page.url);
+  const cached = await readClaimCache(cacheKey);
+  if (cached) return { ...cached, fromCache: true };
+
   const host = (() => { try { return new URL(page.url).hostname.replace(/^www\./, ""); } catch { return null; } })();
   const tool = { type: "web_search_20250305", name: "web_search", max_uses: searchesPerClaim };
   // The page can't be evidence for itself.
@@ -226,13 +268,15 @@ export async function checkClaim({ apiKey, model, claim, page, searchesPerClaim,
     .map((t) => ({ from: String(t.from), to: String(t.to), kind: t.kind === "undercut" ? "undercut" : "rebut", reason: t.reason || "" }));
 
   const labels = groundedLabels(args.map((a) => a.id), attacks);
-  return {
+  const result = {
     args: args.map((a) => ({ ...a, status: labels[a.id] })),
     attacks,
     verdict: verdictFor(args, labels),
     summary: typeof parsed.summary === "string" ? parsed.summary : "",
     dropped: (parsed.arguments || []).length - args.length
   };
+  await writeClaimCache(cacheKey, result);
+  return result;
 }
 
 // Pages the fetch tool actually read in full (not just seen as a search result).
